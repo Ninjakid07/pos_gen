@@ -1,7 +1,5 @@
 from setuptools import find_packages, setup
-
 package_name = 'pos_gen'
-
 setup(
     name=package_name,
     version='0.0.0',
@@ -16,6 +14,10 @@ setup(
         'setuptools',
         'rclpy',  # Changed from rospy to rclpy for ROS2
         'numpy',  # Added numpy dependency
+        'scipy',  # Required for rotation calculations
+        'open3d',  # Required for point cloud processing
+        'pyransac3d',  # Required for cylinder detection
+        'opencv-python',  # Required for image processing
     ],
     zip_safe=True,
     maintainer='user',
@@ -29,6 +31,7 @@ setup(
             'row_nav = pos_gen.row_nav:main',
             'tree_row_navigator = pos_gen.tree_row_navigator:main',
             'cylinder_analyzer = pos_gen.cylinder_analyzer:main',
+            'cylinder_detector = pos_gen.cylinder_detector:main',  # Added new cylinder detector node
         ],
     },
 )
