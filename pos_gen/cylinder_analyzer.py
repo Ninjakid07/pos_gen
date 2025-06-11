@@ -297,85 +297,160 @@ class CylinderAnalyzer(Node):
         self.get_logger().info(f"Total cylinder candidates found: {len(all_cylinder_candidates)}")
         
         if confidence_scores:
-            self.get_logger().info(f"Average confidence: {np.mean(confidence_scores):.2f}")
-            self.get_logger().info(f"Max confidence: {np.max(confidence_scores):.2f}")
-            self.get_logger().info(f"Min confidence: {np.min(confidence_scores):.2f}")
+            self.get_logger().info(f"Average confidence: {np.mean(confidence_scores):.3f}")
+            self.get_logger().info(f"Max confidence: {np.max(confidence_scores):.3f}")
+            self.get_logger().info(f"Min confidence: {np.min(confidence_scores):.3f}")
+            self.get_logger().info(f"Confidence std dev: {np.std(confidence_scores):.3f}")
         
         if diameters:
-            self.get_logger().info(f"Estimated diameter - Mean: {np.mean(diameters)*100:.1f}cm")
-            self.get_logger().info(f"Estimated diameter - Std: {np.std(diameters)*100:.1f}cm")
-            self.get_logger().info(f"Estimated diameter - Range: {np.min(diameters)*100:.1f}cm - {np.max(diameters)*100:.1f}cm")
+            self.get_logger().info(f"Estimated diameter - Mean: {np.mean(diameters)*100:.2f}cm")
+            self.get_logger().info(f"Estimated diameter - Std: {np.std(diameters)*100:.2f}cm")
+            self.get_logger().info(f"Estimated diameter - Min: {np.min(diameters)*100:.2f}cm")
+            self.get_logger().info(f"Estimated diameter - Max: {np.max(diameters)*100:.2f}cm")
         
         if distances:
-            self.get_logger().info(f"Detection distance - Mean: {np.mean(distances):.2f}m")
-            self.get_logger().info(f"Detection distance - Range: {np.min(distances):.2f}m - {np.max(distances):.2f}m")
+            self.get_logger().info(f"Detection distance - Mean: {np.mean(distances):.3f}m")
+            self.get_logger().info(f"Detection distance - Min: {np.min(distances):.3f}m")
+            self.get_logger().info(f"Detection distance - Max: {np.max(distances):.3f}m")
+            self.get_logger().info(f"Detection distance - Std: {np.std(distances):.3f}m")
         
         if point_counts:
-            self.get_logger().info(f"Points per detection - Mean: {np.mean(point_counts):.1f}")
-            self.get_logger().info(f"Points per detection - Range: {np.min(point_counts)} - {np.max(point_counts)}")
+            self.get_logger().info(f"Points per detection - Mean: {np.mean(point_counts):.2f}")
+            self.get_logger().info(f"Points per detection - Min: {int(np.min(point_counts))}")
+            self.get_logger().info(f"Points per detection - Max: {int(np.max(point_counts))}")
+            self.get_logger().info(f"Points per detection - Mode: {int(np.bincount(point_counts).argmax()) if point_counts else 'N/A'}")
         
         if angular_spans:
-            self.get_logger().info(f"Angular span - Mean: {np.mean(angular_spans):.1f}°")
-            self.get_logger().info(f"Angular span - Range: {np.min(angular_spans):.1f}° - {np.max(angular_spans):.1f}°")
+            self.get_logger().info(f"Angular span - Mean: {np.mean(angular_spans):.2f}°")
+            self.get_logger().info(f"Angular span - Min: {np.min(angular_spans):.2f}°")
+            self.get_logger().info(f"Angular span - Max: {np.max(angular_spans):.2f}°")
+            self.get_logger().info(f"Angular span - Std: {np.std(angular_spans):.2f}°")
         
-        # High confidence detections
+        # Detection quality analysis
         high_confidence = [c for c in all_cylinder_candidates if c['confidence'] > 0.7]
-        self.get_logger().info(f"High confidence detections: {len(high_confidence)}")
+        medium_confidence = [c for c in all_cylinder_candidates if 0.4 <= c['confidence'] <= 0.7]
+        low_confidence = [c for c in all_cylinder_candidates if c['confidence'] < 0.4]
         
-        # Best detection example
+        self.get_logger().info("=" * 40)
+        self.get_logger().info("DETECTION QUALITY BREAKDOWN:")
+        self.get_logger().info(f"High confidence detections (>0.7): {len(high_confidence)}")
+        self.get_logger().info(f"Medium confidence detections (0.4-0.7): {len(medium_confidence)}")
+        self.get_logger().info(f"Low confidence detections (<0.4): {len(low_confidence)}")
+        
+        # Distance-based analysis
+        if distances:
+            close_detections = [c for c in all_cylinder_candidates if c['cluster_properties']['center_range'] < 0.5]
+            medium_detections = [c for c in all_cylinder_candidates if 0.5 <= c['cluster_properties']['center_range'] < 1.0]
+            far_detections = [c for c in all_cylinder_candidates if c['cluster_properties']['center_range'] >= 1.0]
+            
+            self.get_logger().info("=" * 40)
+            self.get_logger().info("DISTANCE-BASED ANALYSIS:")
+            self.get_logger().info(f"Close range (<0.5m): {len(close_detections)} detections")
+            if close_detections:
+                close_conf = [c['confidence'] for c in close_detections]
+                close_points = [c['cluster_properties']['points'] for c in close_detections]
+                self.get_logger().info(f"  Avg confidence: {np.mean(close_conf):.3f}")
+                self.get_logger().info(f"  Avg points: {np.mean(close_points):.1f}")
+            
+            self.get_logger().info(f"Medium range (0.5-1.0m): {len(medium_detections)} detections")
+            if medium_detections:
+                med_conf = [c['confidence'] for c in medium_detections]
+                med_points = [c['cluster_properties']['points'] for c in medium_detections]
+                self.get_logger().info(f"  Avg confidence: {np.mean(med_conf):.3f}")
+                self.get_logger().info(f"  Avg points: {np.mean(med_points):.1f}")
+            
+            self.get_logger().info(f"Far range (>1.0m): {len(far_detections)} detections")
+            if far_detections:
+                far_conf = [c['confidence'] for c in far_detections]
+                far_points = [c['cluster_properties']['points'] for c in far_detections]
+                self.get_logger().info(f"  Avg confidence: {np.mean(far_conf):.3f}")
+                self.get_logger().info(f"  Avg points: {np.mean(far_points):.1f}")
+        
+        # Best detection examples
         if confidence_scores:
             best_idx = np.argmax(confidence_scores)
             best_detection = all_cylinder_candidates[best_idx]
+            
             self.get_logger().info("=" * 40)
             self.get_logger().info("BEST DETECTION EXAMPLE:")
-            self.get_logger().info(f"  Confidence: {best_detection['confidence']:.2f}")
-            self.get_logger().info(f"  Diameter: {best_detection['estimated_diameter']*100:.1f}cm")
-            self.get_logger().info(f"  Distance: {best_detection['cluster_properties']['center_range']:.2f}m")
-            self.get_logger().info(f"  Points: {best_detection['cluster_properties']['points']}")
-            self.get_logger().info(f"  Angular span: {best_detection['cluster_properties']['angular_span_deg']:.1f}°")
+            self.get_logger().info(f"  Confidence: {best_detection['confidence']:.3f}")
+            self.get_logger().info(f"  Estimated diameter: {best_detection['estimated_diameter']*100:.2f}cm")
+            self.get_logger().info(f"  Distance: {best_detection['cluster_properties']['center_range']:.3f}m")
+            self.get_logger().info(f"  LiDAR points: {best_detection['cluster_properties']['points']}")
+            self.get_logger().info(f"  Angular span: {best_detection['cluster_properties']['angular_span_deg']:.2f}°")
+            self.get_logger().info(f"  Physical span: {best_detection['cluster_properties']['span']*100:.2f}cm")
+            self.get_logger().info(f"  Compactness: {best_detection['compactness']:.3f}")
             self.get_logger().info(f"  Classification: {best_detection['classification']}")
         
-        # Save detailed results to file
-        self.save_analysis_results(all_cylinder_candidates)
+        # Detection frequency analysis
+        detection_rate = len(all_cylinder_candidates) / len(self.scan_data) * 100
+        self.get_logger().info("=" * 40)
+        self.get_logger().info("DETECTION STATISTICS:")
+        self.get_logger().info(f"Detection rate: {detection_rate:.1f}% of scans")
+        self.get_logger().info(f"Scans with no detection: {len(self.scan_data) - len([s for s in self.scan_data if s['analysis']['cylinder_candidates'] > 0])}")
+        self.get_logger().info(f"Scans with 1+ detections: {len([s for s in self.scan_data if s['analysis']['cylinder_candidates'] > 0])}")
         
+        # Raw data summary for copying
         self.get_logger().info("=" * 60)
-        self.get_logger().info("Analysis complete! Check /tmp/cylinder_analysis.json for detailed results")
-
-    def save_analysis_results(self, all_candidates):
-        """Save detailed analysis results to JSON file"""
-        # Prepare data for JSON serialization
-        json_data = {
-            'metadata': {
-                'total_scans': len(self.scan_data),
-                'collection_duration': self.collection_duration,
-                'total_candidates': len(all_candidates),
-                'analysis_timestamp': time.time()
+        self.get_logger().info("RAW DATA SUMMARY (for copy-paste):")
+        self.get_logger().info("=" * 60)
+        
+        summary_data = {
+            "total_scans": len(self.scan_data),
+            "total_detections": len(all_cylinder_candidates),
+            "detection_rate_percent": round(detection_rate, 1),
+            "confidence_stats": {
+                "mean": round(np.mean(confidence_scores), 3) if confidence_scores else 0,
+                "std": round(np.std(confidence_scores), 3) if confidence_scores else 0,
+                "min": round(np.min(confidence_scores), 3) if confidence_scores else 0,
+                "max": round(np.max(confidence_scores), 3) if confidence_scores else 0
             },
-            'summary_statistics': {
-                'confidence_mean': float(np.mean([c['confidence'] for c in all_candidates])) if all_candidates else 0,
-                'diameter_mean_cm': float(np.mean([c['estimated_diameter'] for c in all_candidates]) * 100) if all_candidates else 0,
-                'diameter_std_cm': float(np.std([c['estimated_diameter'] for c in all_candidates]) * 100) if all_candidates else 0,
-                'distance_mean_m': float(np.mean([c['cluster_properties']['center_range'] for c in all_candidates])) if all_candidates else 0,
-                'points_mean': float(np.mean([c['cluster_properties']['points'] for c in all_candidates])) if all_candidates else 0
+            "diameter_stats_cm": {
+                "mean": round(np.mean(diameters)*100, 2) if diameters else 0,
+                "std": round(np.std(diameters)*100, 2) if diameters else 0,
+                "min": round(np.min(diameters)*100, 2) if diameters else 0,
+                "max": round(np.max(diameters)*100, 2) if diameters else 0
             },
-            'all_detections': []
+            "distance_stats_m": {
+                "mean": round(np.mean(distances), 3) if distances else 0,
+                "std": round(np.std(distances), 3) if distances else 0,
+                "min": round(np.min(distances), 3) if distances else 0,
+                "max": round(np.max(distances), 3) if distances else 0
+            },
+            "points_per_detection": {
+                "mean": round(np.mean(point_counts), 2) if point_counts else 0,
+                "min": int(np.min(point_counts)) if point_counts else 0,
+                "max": int(np.max(point_counts)) if point_counts else 0,
+                "mode": int(np.bincount(point_counts).argmax()) if point_counts else 0
+            },
+            "angular_span_degrees": {
+                "mean": round(np.mean(angular_spans), 2) if angular_spans else 0,
+                "std": round(np.std(angular_spans), 2) if angular_spans else 0,
+                "min": round(np.min(angular_spans), 2) if angular_spans else 0,
+                "max": round(np.max(angular_spans), 2) if angular_spans else 0
+            },
+            "quality_breakdown": {
+                "high_confidence_count": len(high_confidence),
+                "medium_confidence_count": len(medium_confidence),
+                "low_confidence_count": len(low_confidence)
+            },
+            "distance_breakdown": {
+                "close_range_detections": len([c for c in all_cylinder_candidates if c['cluster_properties']['center_range'] < 0.5]),
+                "medium_range_detections": len([c for c in all_cylinder_candidates if 0.5 <= c['cluster_properties']['center_range'] < 1.0]),
+                "far_range_detections": len([c for c in all_cylinder_candidates if c['cluster_properties']['center_range'] >= 1.0])
+            }
         }
         
-        # Add individual detections (without raw points to reduce file size)
-        for candidate in all_candidates:
-            detection = dict(candidate)
-            # Remove raw points to keep file manageable
-            if 'raw_points' in detection['cluster_properties']:
-                del detection['cluster_properties']['raw_points']
-            json_data['all_detections'].append(detection)
+        # Print formatted JSON for easy copying
+        import json
+        self.get_logger().info("JSON_START")
+        print(json.dumps(summary_data, indent=2))
+        self.get_logger().info("JSON_END")
         
-        # Save to file
-        try:
-            with open('/tmp/cylinder_analysis.json', 'w') as f:
-                json.dump(json_data, f, indent=2)
-            self.get_logger().info("Detailed results saved to /tmp/cylinder_analysis.json")
-        except Exception as e:
-            self.get_logger().error(f"Failed to save results: {e}")
+        self.get_logger().info("=" * 60)
+        self.get_logger().info("ANALYSIS COMPLETE!")
+        self.get_logger().info("Copy the data between JSON_START and JSON_END markers")
+        self.get_logger().info("=" * 60)
 
 def main(args=None):
     rclpy.init(args=args)
