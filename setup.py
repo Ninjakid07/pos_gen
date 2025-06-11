@@ -27,7 +27,8 @@ setup(
         'console_scripts': [
             'tree_marker_publisher = pos_gen.tree_marker_publisher:main',
             'row_nav = pos_gen.row_nav:main',
-            'tree_row_navigator = pos_gen.tree_row_navigator:main',  # New entry point
+            'tree_row_navigator = pos_gen.tree_row_navigator:main',
+            'cylinder_analyzer = pos_gen.cylinder_analyzer:main',
         ],
     },
 )
