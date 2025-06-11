@@ -21,6 +21,7 @@ setup(
     entry_points={
         'console_scripts': [
             'tree_marker_publisher = pos_gen.tree_marker_publisher:main',
+            'row_nav = pos_gen.row_nav:main',
         ],
     },
 )
