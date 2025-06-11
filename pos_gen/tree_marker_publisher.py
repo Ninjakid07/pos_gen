@@ -4,16 +4,17 @@ import rclpy
 from rclpy.node import Node
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point
+from nav_msgs.msg import Odometry
 import tf2_ros
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
+import math
 
 # ============== EASILY CONFIGURABLE PARAMETERS ==============
-NUM_ROWS = 3          # Number of tree rows
-TREES_PER_ROW = 5     # Number of trees in each row
-TREE_SPACING = 0.3    # Distance between trees in a row (meters)
-ROW_SPACING = 0.5     # Distance between rows (meters)
+TREES_PER_ROW = 10     # Number of trees in the row
+TREE_SPACING = 0.2     # Distance between trees in a row (20 cm)
+REVEAL_DISTANCE = 0.3  # Distance to tree before revealing next one (meters)
 
 # Tree marker appearance
 TREE_RADIUS = 0.05    # Radius of tree trunk (meters)
@@ -27,92 +28,138 @@ class TreeMarkerPublisher(Node):
         # Publisher for tree positions
         self.marker_pub = self.create_publisher(MarkerArray, '/tree_pos', 10)
         
+        # Subscribe to robot odometry for position tracking
+        self.odom_sub = self.create_subscription(
+            Odometry,
+            '/odom',
+            self.odom_callback,
+            10
+        )
+        
         # TF2 buffer and listener for coordinate transformations
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         
-        # Wait a moment for transforms to become available
+        # State variables
+        self.robot_x = 0.0
+        self.robot_y = 0.0
+        self.trees_revealed = 1  # Start with first tree visible
+        self.initial_robot_x = None
+        self.initial_robot_y = None
+        self.tree_positions = []  # Store all tree positions
+        self.marker_array = MarkerArray()
+        
+        # Wait for initial position
         self.create_timer(2.0, self.initialize_markers)  # One-shot timer for initialization
         
         # Publishing timer
         self.publish_timer = None
-        self.marker_array = MarkerArray()
         
-        self.get_logger().info(f'Tree marker publisher initialized with {NUM_ROWS} rows and {TREES_PER_ROW} trees per row')
+        self.get_logger().info(f'Tree marker publisher initialized with {TREES_PER_ROW} trees in a single row')
         
     def initialize_markers(self):
-        """Initialize markers after waiting for transforms"""
+        """Initialize tree positions after waiting for transforms"""
         # Cancel the initialization timer
         self.destroy_timer(self._timers[0])
         
-        # Generate markers
-        self.marker_array = self.generate_tree_markers()
-        
-        # Start publishing
-        self.publish_timer = self.create_timer(1.0, self.publish_markers)  # 1 Hz
-        
-    def generate_tree_markers(self):
-        """Generate tree markers in a grid pattern relative to robot's initial position"""
-        marker_array = MarkerArray()
-        marker_id = 0
-        
-        # Get robot's current position in odom frame
+        # Get robot's initial position
         try:
-            # Try to get transform from base_link to odom
             transform = self.tf_buffer.lookup_transform('odom', 'base_link', rclpy.time.Time())
-            robot_x = transform.transform.translation.x
-            robot_y = transform.transform.translation.y
-            self.get_logger().info(f'Robot initial position: x={robot_x:.2f}, y={robot_y:.2f}')
+            self.initial_robot_x = transform.transform.translation.x
+            self.initial_robot_y = transform.transform.translation.y
+            self.get_logger().info(f'Robot initial position: x={self.initial_robot_x:.2f}, y={self.initial_robot_y:.2f}')
         except TransformException as ex:
             self.get_logger().warn(f'Could not get robot transform: {ex}, using (0,0) as origin')
-            robot_x = 0.0
-            robot_y = 0.0
+            self.initial_robot_x = 0.0
+            self.initial_robot_y = 0.0
         
-        # Generate markers for each tree
-        for row in range(NUM_ROWS):
-            for tree in range(TREES_PER_ROW):
-                marker = Marker()
-                
-                # Basic marker properties
-                marker.header.frame_id = "odom"  # Fixed frame so markers don't move
-                marker.header.stamp = self.get_clock().now().to_msg()
-                marker.ns = "trees"
-                marker.id = marker_id
-                marker.type = Marker.CYLINDER
-                marker.action = Marker.ADD
-                
-                # Position relative to robot's initial position
-                # Trees are arranged with rows going forward (x) and trees in a row going sideways (y)
-                marker.pose.position.x = robot_x + (tree * TREE_SPACING)
-                marker.pose.position.y = robot_y + (row * ROW_SPACING)
-                marker.pose.position.z = TREE_HEIGHT / 2  # Cylinder centered at half height
-                
-                # Orientation (standing upright)
-                marker.pose.orientation.x = 0.0
-                marker.pose.orientation.y = 0.0
-                marker.pose.orientation.z = 0.0
-                marker.pose.orientation.w = 1.0
-                
-                # Size
-                marker.scale.x = TREE_RADIUS * 2  # Diameter
-                marker.scale.y = TREE_RADIUS * 2  # Diameter
-                marker.scale.z = TREE_HEIGHT
-                
-                # Color (brown for tree trunk)
-                marker.color.r = 0.55
-                marker.color.g = 0.27
-                marker.color.b = 0.07
-                marker.color.a = 1.0
-                
-                # Lifetime (0 means forever)
-                marker.lifetime.sec = 0
-                marker.lifetime.nanosec = 0
-                
-                marker_array.markers.append(marker)
-                marker_id += 1
-                
-        self.get_logger().info(f'Generated {marker_id} tree markers')
-        return marker_array
+        # Generate all tree positions (but don't create markers yet)
+        self.generate_tree_positions()
+        
+        # Create first tree marker
+        self.update_visible_trees()
+        
+        # Start publishing
+        self.publish_timer = self.create_timer(0.1, self.publish_markers)  # 10 Hz for responsive updates
+        
+    def generate_tree_positions(self):
+        """Generate positions for all trees in the row"""
+        for tree_idx in range(TREES_PER_ROW):
+            # Trees arranged in a straight line along X axis
+            x = self.initial_robot_x + (tree_idx * TREE_SPACING)
+            y = self.initial_robot_y
+            self.tree_positions.append((x, y))
+        
+        self.get_logger().info(f'Generated positions for {TREES_PER_ROW} trees')
+    
+    def odom_callback(self, msg):
+        """Update robot position from odometry"""
+        self.robot_x = msg.pose.pose.position.x
+        self.robot_y = msg.pose.pose.position.y
+        
+        # Check if we should reveal more trees
+        if self.trees_revealed < TREES_PER_ROW:
+            # Get current visible tree position (last revealed tree)
+            current_tree_x, current_tree_y = self.tree_positions[self.trees_revealed - 1]
+            
+            # Calculate distance to current tree
+            distance = math.sqrt((self.robot_x - current_tree_x)**2 + (self.robot_y - current_tree_y)**2)
+            
+            # If close enough, reveal next tree
+            if distance < REVEAL_DISTANCE:
+                self.trees_revealed += 1
+                self.update_visible_trees()
+                self.get_logger().info(f'Revealed tree {self.trees_revealed}/{TREES_PER_ROW}')
+    
+    def create_tree_marker(self, tree_idx, x, y):
+        """Create a single tree marker"""
+        marker = Marker()
+        
+        # Basic marker properties
+        marker.header.frame_id = "odom"
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = "trees"
+        marker.id = tree_idx
+        marker.type = Marker.CYLINDER
+        marker.action = Marker.ADD
+        
+        # Position
+        marker.pose.position.x = x
+        marker.pose.position.y = y
+        marker.pose.position.z = TREE_HEIGHT / 2
+        
+        # Orientation (standing upright)
+        marker.pose.orientation.x = 0.0
+        marker.pose.orientation.y = 0.0
+        marker.pose.orientation.z = 0.0
+        marker.pose.orientation.w = 1.0
+        
+        # Size
+        marker.scale.x = TREE_RADIUS * 2
+        marker.scale.y = TREE_RADIUS * 2
+        marker.scale.z = TREE_HEIGHT
+        
+        # Color (brown for tree trunk)
+        marker.color.r = 0.55
+        marker.color.g = 0.27
+        marker.color.b = 0.07
+        marker.color.a = 1.0
+        
+        # Lifetime (0 means forever)
+        marker.lifetime.sec = 0
+        marker.lifetime.nanosec = 0
+        
+        return marker
+    
+    def update_visible_trees(self):
+        """Update the marker array with currently visible trees"""
+        self.marker_array.markers.clear()
+        
+        # Add markers for all revealed trees
+        for i in range(self.trees_revealed):
+            x, y = self.tree_positions[i]
+            marker = self.create_tree_marker(i, x, y)
+            self.marker_array.markers.append(marker)
     
     def publish_markers(self):
         """Publish the marker array"""
